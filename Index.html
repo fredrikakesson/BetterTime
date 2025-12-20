@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solartid</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+```
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        padding: 20px;
+    }
+    
+    .clock-container {
+        text-align: center;
+        max-width: 400px;
+        width: 100%;
+    }
+    
+    .title {
+        font-size: 1.2rem;
+        font-weight: 300;
+        margin-bottom: 40px;
+        opacity: 0.9;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+    
+    .solar-time {
+        font-size: 5rem;
+        font-weight: 200;
+        margin-bottom: 10px;
+        letter-spacing: -2px;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+    
+    .solar-seconds {
+        font-size: 2.5rem;
+        opacity: 0.7;
+        margin-bottom: 40px;
+    }
+    
+    .offset-container {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 30px;
+    }
+    
+    .offset-label {
+        font-size: 0.9rem;
+        opacity: 0.8;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .offset-value {
+        font-size: 1.8rem;
+        font-weight: 300;
+    }
+    
+    .local-time {
+        font-size: 1.2rem;
+        opacity: 0.7;
+        margin-top: 10px;
+    }
+    
+    .info-container {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 15px;
+        padding: 15px;
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+    
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 5px 0;
+    }
+    
+    .info-label {
+        opacity: 0.7;
+    }
+    
+    .loading {
+        font-size: 1.2rem;
+        opacity: 0.8;
+    }
+    
+    .error {
+        background: rgba(255, 100, 100, 0.2);
+        padding: 20px;
+        border-radius: 15px;
+        margin-top: 20px;
+    }
+    
+    button {
+        background: rgba(255, 255, 255, 0.2);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        padding: 12px 30px;
+        border-radius: 25px;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-top: 20px;
+        transition: all 0.3s;
+    }
+    
+    button:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: scale(1.05);
+    }
+</style>
+```
+
+</head>
+<body>
+    <div class="clock-container">
+        <div class="title">Solartid</div>
+
+```
+    <div id="loading" class="loading">
+        Hämtar din position...
+    </div>
+    
+    <div id="clock" style="display: none;">
+        <div class="solar-time" id="solarTime">--:--</div>
+        <div class="solar-seconds" id="solarSeconds">--</div>
+        
+        <div class="offset-container">
+            <div class="offset-label">Skillnad mot lokal tid</div>
+            <div class="offset-value" id="offset">--</div>
+            <div class="local-time" id="localTime">Lokal tid: --:--:--</div>
+        </div>
+        
+        <div class="info-container">
+            <div class="info-row">
+                <span class="info-label">Position:</span>
+                <span id="position">--</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Noggrannhet:</span>
+                <span id="accuracy">--</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">UTC offset:</span>
+                <span id="utcOffset">--</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="error" style="display: none;" class="error">
+        <p>Kunde inte hämta din position.</p>
+        <p style="margin-top: 10px; font-size: 0.9rem; opacity: 0.8;">
+            Kontrollera att du har gett webbläsaren tillåtelse att använda din plats.
+        </p>
+        <button onclick="location.reload()">Försök igen</button>
+    </div>
+</div>
+
+<script>
+    function updateClock(longitude, latitude, accuracy) {
+        function update() {
+            const now = new Date();
+            
+            // Beräkna solartid
+            const utcHours = now.getUTCHours();
+            const utcMinutes = now.getUTCMinutes();
+            const utcSeconds = now.getUTCSeconds();
+            
+            // Lägg till longitudoffset (15° = 1 timme)
+            const solarOffset = longitude / 15;
+            const totalSolarHours = utcHours + utcMinutes/60 + utcSeconds/3600 + solarOffset;
+            
+            // Konvertera till normaliserad tid (0-24)
+            let normalizedHours = totalSolarHours % 24;
+            if (normalizedHours < 0) normalizedHours += 24;
+            
+            const solarHours = Math.floor(normalizedHours);
+            const solarMinutes = Math.floor((normalizedHours - solarHours) * 60);
+            const solarSeconds = Math.floor(((normalizedHours - solarHours) * 60 - solarMinutes) * 60);
+            
+            // Visa solartid
+            document.getElementById('solarTime').textContent = 
+                `${String(solarHours).padStart(2, '0')}:${String(solarMinutes).padStart(2, '0')}`;
+            document.getElementById('solarSeconds').textContent = 
+                String(solarSeconds).padStart(2, '0');
+            
+            // Visa lokal tid
+            const localHours = now.getHours();
+            const localMinutes = now.getMinutes();
+            const localSeconds = now.getSeconds();
+            document.getElementById('localTime').textContent = 
+                `Lokal tid: ${String(localHours).padStart(2, '0')}:${String(localMinutes).padStart(2, '0')}:${String(localSeconds).padStart(2, '0')}`;
+            
+            // Beräkna offset mot lokal tid
+            const localTotalMinutes = localHours * 60 + localMinutes;
+            const solarTotalMinutes = solarHours * 60 + solarMinutes;
+            let diffMinutes = solarTotalMinutes - localTotalMinutes;
+            
+            // Hantera daggräns
+            if (diffMinutes > 720) diffMinutes -= 1440;
+            if (diffMinutes < -720) diffMinutes += 1440;
+            
+            const diffHours = Math.floor(Math.abs(diffMinutes) / 60);
+            const diffMins = Math.abs(diffMinutes) % 60;
+            const sign = diffMinutes >= 0 ? '+' : '-';
+            
+            document.getElementById('offset').textContent = 
+                `${sign}${diffHours}t ${diffMins}min`;
+            
+            // Visa positioninfo
+            document.getElementById('position').textContent = 
+                `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+            document.getElementById('accuracy').textContent = 
+                `±${Math.round(accuracy)}m`;
+            document.getElementById('utcOffset').textContent = 
+                `${solarOffset >= 0 ? '+' : ''}${solarOffset.toFixed(2)} timmar`;
+        }
+        
+        update();
+        setInterval(update, 1000);
+    }
+    
+    // Hämta position
+    if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('clock').style.display = 'block';
+                
+                updateClock(
+                    position.coords.longitude,
+                    position.coords.latitude,
+                    position.coords.accuracy
+                );
+            },
+            (error) => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                console.error('Geolocation error:', error);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    } else {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').style.display = 'block';
+        document.getElementById('error').innerHTML = 
+            '<p>Din webbläsare stödjer inte geolocation.</p>';
+    }
+</script>
+```
+
+</body>
+</html>
