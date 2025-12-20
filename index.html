@@ -207,21 +207,23 @@
                 document.getElementById('localTime').textContent = 
                     `Lokal tid: ${String(localHours).padStart(2, '0')}:${String(localMinutes).padStart(2, '0')}:${String(localSeconds).padStart(2, '0')}`;
                 
-                // Beräkna offset mot lokal tid
-                const localTotalMinutes = localHours * 60 + localMinutes;
-                const solarTotalMinutes = solarHours * 60 + solarMinutes;
-                let diffMinutes = solarTotalMinutes - localTotalMinutes;
+                // Beräkna offset mot lokal tid (i sekunder för högre precision)
+                const localTotalSeconds = localHours * 3600 + localMinutes * 60 + localSeconds;
+                const solarTotalSeconds = solarHours * 3600 + solarMinutes * 60 + solarSeconds;
+                let diffSeconds = solarTotalSeconds - localTotalSeconds;
                 
                 // Hantera daggräns
-                if (diffMinutes > 720) diffMinutes -= 1440;
-                if (diffMinutes < -720) diffMinutes += 1440;
+                if (diffSeconds > 43200) diffSeconds -= 86400;
+                if (diffSeconds < -43200) diffSeconds += 86400;
                 
-                const diffHours = Math.floor(Math.abs(diffMinutes) / 60);
-                const diffMins = Math.abs(diffMinutes) % 60;
-                const sign = diffMinutes >= 0 ? '+' : '-';
+                const absDiffSeconds = Math.abs(diffSeconds);
+                const diffHours = Math.floor(absDiffSeconds / 3600);
+                const diffMins = Math.floor((absDiffSeconds % 3600) / 60);
+                const diffSecs = absDiffSeconds % 60;
+                const sign = diffSeconds >= 0 ? '+' : '-';
                 
                 document.getElementById('offset').textContent = 
-                    `${sign}${diffHours}t ${diffMins}min`;
+                    `${sign}${diffHours}t ${diffMins}min ${diffSecs}s`;
                 
                 // Visa positioninfo
                 document.getElementById('position').textContent = 
