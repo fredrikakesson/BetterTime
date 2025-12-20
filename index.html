@@ -133,7 +133,8 @@
         <div class="title">Solartid</div>
         
         <div id="loading" class="loading">
-            Hämtar din position...
+            <p style="margin-bottom: 20px;">För att visa solartid behöver appen tillgång till din position.</p>
+            <button id="enableButton">Aktivera position</button>
         </div>
         
         <div id="clock" style="display: none;">
@@ -235,36 +236,40 @@
             setInterval(update, 1000);
         }
         
-        // Hämta position
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('clock').style.display = 'block';
-                    
-                    updateClock(
-                        position.coords.longitude,
-                        position.coords.latitude,
-                        position.coords.accuracy
-                    );
-                },
-                (error) => {
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('error').style.display = 'block';
-                    console.error('Geolocation error:', error);
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
-                }
-            );
-        } else {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('error').style.display = 'block';
-            document.getElementById('error').innerHTML = 
-                '<p>Din webbläsare stödjer inte geolocation.</p>';
+        function requestLocation() {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('clock').style.display = 'block';
+                        
+                        updateClock(
+                            position.coords.longitude,
+                            position.coords.latitude,
+                            position.coords.accuracy
+                        );
+                    },
+                    (error) => {
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('error').style.display = 'block';
+                        console.error('Geolocation error:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
+                );
+            } else {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').innerHTML = 
+                    '<p>Din webbläsare stödjer inte geolocation.</p>';
+            }
         }
+        
+        // Koppla knappen till funktionen
+        document.getElementById('enableButton').addEventListener('click', requestLocation);
     </script>
 </body>
 </html>
