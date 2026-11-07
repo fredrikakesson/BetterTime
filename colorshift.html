@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Färgskift-kamera</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; touch-action: none; }
+  video { display: none; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, rgba(0,0,0,.75));
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  button { font: inherit; font-size: 15px; padding: 10px 14px; border-radius: 22px;
+    border: 1px solid rgba(255,255,255,.4); background: rgba(30,30,30,.7); color: #fff; }
+  button.on { background: #fff; color: #000; }
+  #label { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 0; right: 0;
+    text-align: center; font-size: 14px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 16px;
+    align-items: center; justify-content: center; padding: 24px; text-align: center; background: #111; }
+  #start button { font-size: 18px; padding: 14px 26px; background: #fff; color: #000; }
+  #err { color: #f88; max-width: 420px; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<div id="label"></div>
+
+<div id="bar">
+  <button data-mode="0">Original</button>
+  <button data-mode="1">1 steg</button>
+  <button data-mode="2">2 steg</button>
+  <button id="flip">🔄 Kamera</button>
+</div>
+
+<div id="start">
+  <div style="font-size:22px">Färgskift-kamera</div>
+  <div style="max-width:420px;opacity:.8">
+    Roterar RGB-kanalerna i kamerabilden.<br>
+    <b>1 steg:</b> (R,G,B) → (G,B,R) – rött syns som blått.<br>
+    <b>2 steg:</b> (R,G,B) → (B,R,G) – rött syns som grönt.<br>
+    Håll fingret på bilden för att tillfälligt se originalet.
+  </div>
+  <button id="go">Starta kameran</button>
+  <div id="err"></div>
+</div>
+
+<script>
+(() => {
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('view');
+  const label = document.getElementById('label');
+  const errEl = document.getElementById('err');
+  const labels = [
+    'Original (R,G,B)',
+    '1 steg: (R,G,B) → (G,B,R) · rött → blått',
+    '2 steg: (R,G,B) → (B,R,G) · rött → grönt'
+  ];
+
+  let mode = 1, holding = false, facing = 'environment', stream = null;
+  try { mode = +(localStorage.getItem('cs-mode') ?? 1); } catch (e) {}
+
+  // ---- WebGL: kanalrotation i fragment-shadern (snabbt även på mobil) ----
+  const gl = canvas.getContext('webgl', { preserveDrawingBuffer: false });
+  let uMode, tex, ctx2d;
+  if (gl) {
+    const vs = `attribute vec2 p; varying vec2 uv;
+      void main(){ uv = vec2((p.x+1.0)*0.5, (1.0-p.y)*0.5); gl_Position = vec4(p,0.0,1.0); }`;
+    const fs = `precision mediump float; varying vec2 uv; uniform sampler2D t; uniform int m;
+      void main(){
+        vec3 c = texture2D(t, uv).rgb;
+        if (m == 1) c = c.gbr;        // (r,g,b) -> (g,b,r)
+        else if (m == 2) c = c.brg;   // (r,g,b) -> (b,r,g)
+        gl_FragColor = vec4(c, 1.0);
+      }`;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    uMode = gl.getUniformLocation(prog, 'm');
+  } else {
+    ctx2d = canvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  function draw() {
+    requestAnimationFrame(draw);
+    if (video.readyState < 2) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    const m = holding ? 0 : mode;
+    if (gl) {
+      gl.viewport(0, 0, w, h);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+      gl.uniform1i(uMode, m);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    } else {
+      ctx2d.drawImage(video, 0, 0, w, h);
+      if (m) {
+        const img = ctx2d.getImageData(0, 0, w, h), d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i+1], b = d[i+2];
+          if (m === 1) { d[i] = g; d[i+1] = b; d[i+2] = r; }
+          else         { d[i] = b; d[i+1] = r; d[i+2] = g; }
+        }
+        ctx2d.putImageData(img, 0, 0);
+      }
+    }
+  }
+
+  async function startCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+    canvas.style.transform = facing === 'user' ? 'scaleX(-1)' : '';
+  }
+
+  function setMode(m) {
+    mode = m;
+    try { localStorage.setItem('cs-mode', m); } catch (e) {}
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', +b.dataset.mode === m));
+    updateLabel();
+  }
+  function updateLabel() { label.textContent = holding ? 'Original (håller in)' : labels[mode]; }
+
+  document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(+b.dataset.mode));
+  document.getElementById('flip').onclick = async () => {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    try { await startCamera(); } catch (e) { label.textContent = 'Kunde inte byta kamera'; }
+  };
+
+  const hold = v => e => { holding = v; updateLabel(); if (e.cancelable) e.preventDefault(); };
+  canvas.addEventListener('pointerdown', hold(true));
+  canvas.addEventListener('pointerup', hold(false));
+  canvas.addEventListener('pointercancel', hold(false));
+  canvas.addEventListener('pointerleave', hold(false));
+
+  document.getElementById('go').onclick = async () => {
+    errEl.textContent = '';
+    if (!navigator.mediaDevices?.getUserMedia) {
+      errEl.textContent = 'Kameran är inte tillgänglig. Sidan måste öppnas via https:// (t.ex. GitHub Pages), inte som lokal fil.';
+      return;
+    }
+    try {
+      await startCamera();
+      document.getElementById('start').remove();
+      setMode(mode);
+      draw();
+    } catch (e) {
+      errEl.textContent = 'Kunde inte starta kameran: ' + (e.message || e.name) +
+        '. Kontrollera att du gett sidan kameratillstånd och att den öppnas via https://.';
+    }
+  };
+})();
+</script>
+</body>
+</html>
